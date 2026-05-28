@@ -13,77 +13,58 @@
 #include "app.h"
 
 /* 
-  Example data
-    S       0.00 GN
-    S       0.00 GN
-    SD     -1.14 GN
-    SD   -143.02 GN
-    SD   -467.16 GN
+  Example data from Steinberg SBS-LW-300-MAXT:
+    W:+     0.00GN
+    W:+     1.14GN
+    W:-   143.02GN
 */
-typedef union {
-    struct __attribute__((__packed__)) {
-        char header[2];         // S or SD
-        char data[10];          // Signed integer
-        char unit[2];           // GN (or something else)   
-        char terminator[2];     // \r\n (carriage return)
-    };
-    char bytes[16];
-} steinberg_sbs_data_format_t ;
 
 // Forward declaration
 void _steinberg_scale_listener_task(void *p);
 extern scale_config_t scale_config;
 static void force_zero();
 
-// Instance of the scale handle for A&D FXi series
+// Instance of the scale handle for Steinberg SBS
 scale_handle_t steinberg_scale_handle = {
     .read_loop_task = _steinberg_scale_listener_task,
     .force_zero = force_zero,
 };
 
-
-static float _decode_measurement_msg(steinberg_sbs_data_format_t * msg) {
-    // Decode weight information
-    char *endptr;
-    float weight = strtof(msg->data, &endptr);
-
-    if( endptr == msg->data ) {
-        // Conversion failed
-        return nanf(msg->data);
-    }
-
-    return weight;
-}
-
-
 void _steinberg_scale_listener_task(void *p) {
-    uint8_t string_buf_idx = 0;
-    steinberg_sbs_data_format_t frame;
+    char line_buf[32];
+    uint8_t line_idx = 0;
 
     while (true) {
-        // Read all data 
         while (uart_is_readable(SCALE_UART)) {
             char ch = uart_getc(SCALE_UART);
 
-            frame.bytes[string_buf_idx++] = ch;
+            if (ch == '\n') {
+                // Terminate string
+                line_buf[line_idx] = '\0';
 
-            // If we have received 16 bytes then we can decode the message
-            if (string_buf_idx == sizeof(steinberg_sbs_data_format_t)) {
-                // Data is ready, send to decode
-                scale_config.current_scale_measurement = _decode_measurement_msg(&frame);
+                // Expected format: "W:+     0.00GN" or "W:-   143.02GN"
+                if (line_idx > 4 && line_buf[0] == 'W' && line_buf[1] == ':') {
+                    // Skip "W:" and parse the rest as float
+                    char *ptr = line_buf + 2;
+                    char *endptr;
+                    float weight = strtof(ptr, &endptr);
 
-                // Signal the data is ready
-                if (scale_config.scale_measurement_ready) {
-                    xSemaphoreGive(scale_config.scale_measurement_ready);
+                    if (endptr != ptr) {
+                        scale_config.current_scale_measurement = weight;
+
+                        if (scale_config.scale_measurement_ready) {
+                            xSemaphoreGive(scale_config.scale_measurement_ready);
+                        }
+                    }
                 }
 
-                // Reset
-                string_buf_idx = 0;
-            }
-
-            // \n is the terminator. We shall reset the receive of message on receiving any of those character.
-            if (ch =='\n') {
-                string_buf_idx = 0;
+                // Reset buffer
+                line_idx = 0;
+            } else if (ch != '\r') {
+                // Add to buffer, avoid overflow
+                if (line_idx < sizeof(line_buf) - 1) {
+                    line_buf[line_idx++] = ch;
+                }
             }
         }
 
@@ -92,5 +73,6 @@ void _steinberg_scale_listener_task(void *p) {
 }
 
 static void force_zero() {
-    // TODO: Not implemented
+    // Send tare command to scale - test if scale responds
+    uart_puts(SCALE_UART, "T\r\n");
 }
