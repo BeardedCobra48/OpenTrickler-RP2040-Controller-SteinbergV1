@@ -1,4 +1,3 @@
-```cpp
 #include <FreeRTOS.h>
 #include <queue.h>
 #include <stdlib.h>
@@ -16,7 +15,7 @@
 #include "app.h"
 
 /*
-  Steinberg SBS-LW-300-MAXT output format (FT mode, GN unit):
+  Steinberg SBS-LW-300-MAXT output format:
 
     W:+     0.00GN\r\n
 
@@ -24,14 +23,12 @@
     W:+   303.44GN
 */
 
-// Forward declaration
 void _steinberg_scale_listener_task(void *p);
 
 extern scale_config_t scale_config;
 
 static void force_zero();
 
-// Scale handle
 scale_handle_t steinberg_scale_handle = {
     .read_loop_task = _steinberg_scale_listener_task,
     .force_zero = force_zero,
@@ -61,16 +58,14 @@ void _steinberg_scale_listener_task(void *p) {
                 line_buf[line_idx] = '\0';
                 line_idx = 0;
 
-                // Debug output
                 printf("RAW: %s", line_buf);
 
-                // Check for valid header
+                // Validate header
                 if (line_buf[0] == 'W' && line_buf[1] == ':') {
 
                     float weight = 0.0f;
 
-                    // Parse:
-                    // W:+     303.44GN
+                    // Parse Steinberg format
                     if (sscanf(line_buf, "W:+ %fGN", &weight) == 1) {
 
                         printf("PARSED: %.2f\n", weight);
@@ -100,4 +95,3 @@ static void force_zero() {
 
     scale_write(cmd, strlen(cmd));
 }
-```
