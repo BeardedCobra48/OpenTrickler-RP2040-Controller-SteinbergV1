@@ -64,25 +64,22 @@ void _steinberg_scale_listener_task(void *p) {
                 // Validate packet
                 if (line_buf[0] == 'W' && line_buf[1] == ':') {
 
-                    float weight = 0.0f;
+                    char *ptr = line_buf;
 
-                    // Parse:
-                    // W:+     303.44GN
-                    if (sscanf(line_buf, "W:+ %fGN", &weight) == 1) {
+                    // Find first digit
+                    while (*ptr &&
+                           !isdigit((unsigned char)*ptr)) {
+                        ptr++;
+                    }
 
-                        printf("PARSED: %.2f\n", weight);
+                    float weight = atof(ptr);
 
-                        // Store weight
-                        scale_config.current_scale_measurement = weight;
+                    printf("PARSED: %.2f\n", weight);
 
-                        // Notify waiting tasks
-                        if (scale_config.scale_measurement_ready) {
-                            xSemaphoreGive(scale_config.scale_measurement_ready);
-                        }
+                    scale_config.current_scale_measurement = weight;
 
-                    } else {
-
-                        printf("PARSE FAILED\n");
+                    if (scale_config.scale_measurement_ready) {
+                        xSemaphoreGive(scale_config.scale_measurement_ready);
                     }
                 }
             }
