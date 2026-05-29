@@ -1,3 +1,4 @@
+```cpp
 #include <FreeRTOS.h>
 #include <queue.h>
 #include <stdlib.h>
@@ -7,83 +8,96 @@
 #include <task.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
 
 #include "hardware/uart.h"
 #include "configuration.h"
 #include "scale.h"
 #include "app.h"
 
-/* 
+/*
   Steinberg SBS-LW-300-MAXT output format (FT mode, GN unit):
-    W:+     0.00GN  \r\n   (18 bytes total)
 
-  Verified via CoolTerm hex capture:
-  57 3A 2B 20 20 20 20 20 30 2E 30 30 47 4E 20 20 0D 0A
-  W  :  +  sp sp sp sp sp 0  .  0  0  G  N  sp sp CR LF
+    W:+     0.00GN\r\n
+
+  Example:
+    W:+   303.44GN
 */
 
 // Forward declaration
 void _steinberg_scale_listener_task(void *p);
+
 extern scale_config_t scale_config;
+
 static void force_zero();
 
-// Instance of the scale handle for Steinberg SBS
+// Scale handle
 scale_handle_t steinberg_scale_handle = {
     .read_loop_task = _steinberg_scale_listener_task,
     .force_zero = force_zero,
 };
 
 void _steinberg_scale_listener_task(void *p) {
-    char line_buf[32];
+
+    char line_buf[64];
     uint8_t line_idx = 0;
 
     while (true) {
+
         while (uart_is_readable(SCALE_UART)) {
+
             char ch = uart_getc(SCALE_UART);
 
-            // Prevent buffer overflow
+            // Prevent overflow
             if (line_idx >= sizeof(line_buf) - 1) {
                 line_idx = 0;
             }
 
             line_buf[line_idx++] = ch;
 
+            // End of line
             if (ch == '\n') {
+
                 line_buf[line_idx] = '\0';
                 line_idx = 0;
 
-                // Validate header "W:"
+                // Debug output
+                printf("RAW: %s", line_buf);
+
+                // Check for valid header
                 if (line_buf[0] == 'W' && line_buf[1] == ':') {
 
-                    // Skip "W:", then find first digit or sign
-                    // (identical approach to generic_scale driver)
-                    char *startptr = line_buf + 2;
-                    while (*startptr &&
-                           !isdigit((unsigned char)*startptr) &&
-                           *startptr != '-' &&
-                           *startptr != '+') {
-                        startptr++;
-                    }
+                    float weight = 0.0f;
 
-                    char *endptr;
-                    float weight = strtof(startptr, &endptr);
+                    // Parse:
+                    // W:+     303.44GN
+                    if (sscanf(line_buf, "W:+ %fGN", &weight) == 1) {
 
-                    if (endptr != startptr) {
+                        printf("PARSED: %.2f\n", weight);
+
                         scale_config.current_scale_measurement = weight;
+
                         if (scale_config.scale_measurement_ready) {
                             xSemaphoreGive(scale_config.scale_measurement_ready);
                         }
+
+                    } else {
+
+                        printf("PARSE FAILED\n");
                     }
                 }
             }
         }
+
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
 static void force_zero() {
-    // Tare command - needs testing with Steinberg SBS-LW-300-MAXT
-    // Try "Z\r\n" first, fallback options: "T\r\n"
+
+    // Tare command
     char cmd[] = "Z\r\n";
+
     scale_write(cmd, strlen(cmd));
 }
+```
