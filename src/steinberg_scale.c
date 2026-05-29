@@ -10,6 +10,8 @@
 #include <stdio.h>
 
 #include "hardware/uart.h"
+#include "pico/time.h"
+
 #include "configuration.h"
 #include "scale.h"
 #include "app.h"
@@ -45,7 +47,7 @@ void _steinberg_scale_listener_task(void *p) {
 
             char ch = uart_getc(SCALE_UART);
 
-            // Prevent overflow
+            // Prevent buffer overflow
             if (line_idx >= sizeof(line_buf) - 1) {
                 line_idx = 0;
             }
@@ -60,18 +62,28 @@ void _steinberg_scale_listener_task(void *p) {
 
                 printf("RAW: %s", line_buf);
 
-                // Validate header
+                // Validate packet
                 if (line_buf[0] == 'W' && line_buf[1] == ':') {
 
                     float weight = 0.0f;
 
-                    // Parse Steinberg format
+                    // Parse:
+                    // W:+     303.44GN
                     if (sscanf(line_buf, "W:+ %fGN", &weight) == 1) {
 
                         printf("PARSED: %.2f\n", weight);
 
+                        // Store weight
                         scale_config.current_scale_measurement = weight;
 
+                        // Mark valid
+                        scale_config.scale_measurement_valid = true;
+
+                        // Timestamp update
+                        scale_config.last_scale_update_ms =
+                            to_ms_since_boot(get_absolute_time());
+
+                        // Notify waiting tasks
                         if (scale_config.scale_measurement_ready) {
                             xSemaphoreGive(scale_config.scale_measurement_ready);
                         }
@@ -79,6 +91,8 @@ void _steinberg_scale_listener_task(void *p) {
                     } else {
 
                         printf("PARSE FAILED\n");
+
+                        scale_config.scale_measurement_valid = false;
                     }
                 }
             }
