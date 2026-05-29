@@ -10,7 +10,6 @@
 #include <stdio.h>
 
 #include "hardware/uart.h"
-#include "pico/time.h"
 
 #include "configuration.h"
 #include "scale.h"
@@ -76,13 +75,6 @@ void _steinberg_scale_listener_task(void *p) {
                         // Store weight
                         scale_config.current_scale_measurement = weight;
 
-                        // Mark valid
-                        scale_config.scale_measurement_valid = true;
-
-                        // Timestamp update
-                        scale_config.last_scale_update_ms =
-                            to_ms_since_boot(get_absolute_time());
-
                         // Notify waiting tasks
                         if (scale_config.scale_measurement_ready) {
                             xSemaphoreGive(scale_config.scale_measurement_ready);
@@ -91,8 +83,6 @@ void _steinberg_scale_listener_task(void *p) {
                     } else {
 
                         printf("PARSE FAILED\n");
-
-                        scale_config.scale_measurement_valid = false;
                     }
                 }
             }
